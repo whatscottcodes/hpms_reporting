@@ -1,0 +1,5 @@
+name: hpms_reporting
+dependencies:
+- python=3
+- pandas
+- numpy
