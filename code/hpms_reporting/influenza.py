@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+import csv
 from hpms_reporting.get_quarter import get_quarter_dates
 from hpms_reporting.filepath import filepath, create_dir_if_needed
 
@@ -58,10 +59,12 @@ def create_influ_query_dict():
     AND (e.disenrollment_date >= ?
     OR e.disenrollment_date IS NULL)
     AND e.center = ?
+    AND v.date_administered BETWEEN ? AND ?
+    AND v.immunization_status = 0
     """
 
     eligible_q = """
-    SELECT count(distinct(e.member_id))
+    SELECT distinct(e.member_id)
     FROM enrollment e
     WHERE e.enrollment_date <= ?
     AND (e.disenrollment_date >= ?
@@ -89,7 +92,7 @@ def create_influ_query_dict():
     }
 
 
-def center_influ_data(center, start_date, end_date):
+def center_influ_data(center, q, yr):
     """
     Calculates number of ppts in each vaccination status
         + Starts by calculating the number of ppts enrolled in the time period and older than 65
@@ -102,13 +105,22 @@ def center_influ_data(center, start_date, end_date):
         + Calculates the number of ppts that were missed
     Returns a list for the center of the number of ppts in each vaccination status
     """
+    if q is not None:
+        start_date, end_date = get_quarter_dates(q, yr)
+    else:
+        start_date, end_date = flu_season_dates(yr=None)
+
     conn = sqlite3.connect("V:\\Databases\\reporting.db")
     c = conn.cursor()
-
+    print(start_date)
     queries = create_influ_query_dict()
-    eligble = c.execute(queries["eligible"], (end_date, start_date, center)).fetchone()[
-        0
+    eligble = [
+        val[0]
+        for val in c.execute(
+            queries["eligible"], (end_date, start_date, center)
+        ).fetchall()
     ]
+    eligble_for_vacc = len(eligble)
 
     during = [
         val[0]
@@ -143,20 +155,51 @@ def center_influ_data(center, start_date, end_date):
     ]
     vacc_prior = len(prior)
 
-    refused = len(
-        [
-            val[0]
-            for val in c.execute(
-                queries["refused"], (end_date, start_date, center)
-            ).fetchall()
-            if val[0] not in during + prior + contra
-        ]
+    refused = [
+        val[0]
+        for val in c.execute(
+            queries["refused"],
+            (
+                end_date,
+                start_date,
+                center,
+                f"{start_date.split('-')[0]}-08-01",
+                end_date,
+            ),
+        ).fetchall()
+        if val[0] not in during + prior + contra
+    ]
+
+    refused_vacc = len(refused)
+
+    missed_list = [
+        val for val in eligble if val not in during + prior + contra + refused
+    ]
+
+    missed_query = f"""
+    SELECT p.member_id, p.first, p.last, e.enrollment_date, e.disenrollment_date
+    FROM ppts p
+    JOIN enrollment e on p.member_id=e.member_id
+    WHERE p.member_id IN ({','.join('?' for i in missed_list)});
+    """
+
+    quarter, year = get_quarter_dates(q, yr, return_q=True)
+    pd.read_sql(missed_query, conn, params=missed_list).to_csv(
+        f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_influ_{pd.datetime.today().date()}_{center}.csv",
+        index=False,
     )
 
-    missed = eligble - (vacc_during + vacc_prior + refused + vacc_contra)
-
+    missed = eligble_for_vacc - (vacc_during + vacc_prior + refused_vacc + vacc_contra)
     conn.close()
-    return [eligble, vacc_contra, vacc_during, vacc_prior, refused, missed]
+
+    return [
+        eligble_for_vacc,
+        vacc_contra,
+        vacc_during,
+        vacc_prior,
+        refused_vacc,
+        missed,
+    ]
 
 
 def influ_vacc(q=None, yr=None, return_df=False):
@@ -167,14 +210,10 @@ def influ_vacc(q=None, yr=None, return_df=False):
     Returns dataframe where each row is a vaccination status and each column
     is a center.    
     """
-    if q is not None:
-        start_date, end_date = get_quarter_dates(q, yr)
-    else:
-        start_date, end_date = flu_season_dates(yr=None)
 
     immunization_dict = {}
     for center in ["Providence", "Woonsocket", "Westerly"]:
-        immunization_dict[center] = center_influ_data(center, start_date, end_date)
+        immunization_dict[center] = center_influ_data(center, q, yr)
 
     df_index = ["eligble", "contra", "vacc_during", "vacc_prior", "refused", "missed"]
 
@@ -182,7 +221,7 @@ def influ_vacc(q=None, yr=None, return_df=False):
     df.index = df_index
 
     quarter, year = get_quarter_dates(q, yr, return_q=True)
-    df.to_csv(f"{filepath}\\{year}Q{quarter}\\hpms_pneumo_Q{quarter}_{year}.csv")
+    df.to_csv(f"{filepath}\\{year}Q{quarter}\\hpms_influ_Q{quarter}_{year}.csv")
 
     if return_df:
         return df

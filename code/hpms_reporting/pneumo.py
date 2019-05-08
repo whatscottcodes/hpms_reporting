@@ -57,7 +57,7 @@ def create_pneumo_query_dict():
     """
 
     eligible_q = """
-    SELECT count(distinct(e.member_id)),
+    SELECT e.member_id,
     ROUND((ifnull(julianday(e.disenrollment_date), julianday(?)) - julianday(d.dob)) / 365.25) as age
     FROM enrollment e
     JOIN demographics d on e.member_id=d.member_id
@@ -91,7 +91,7 @@ def create_pneumo_query_dict():
     }
 
 
-def center_pneumo_data(center, start_date, end_date):
+def center_pneumo_data(center, q, yr):
     """
     Calculates number of ppts in each vaccination status
         + Starts by calculating the number of ppts enrolled in the time period and older than 65
@@ -104,13 +104,22 @@ def center_pneumo_data(center, start_date, end_date):
         + Calculates the number of ppts that were missed
     Returns a list for the center of the number of ppts in each vaccination status
     """
+
+    start_date, end_date = get_quarter_dates(q, yr)
+
     conn = sqlite3.connect("V:\\Databases\\reporting.db")
     c = conn.cursor()
 
     queries = create_pneumo_query_dict()
-    eligble = c.execute(
-        queries["eligible"], (end_date, end_date, start_date, center)
-    ).fetchone()[0]
+
+    eligble = [
+        val[0]
+        for val in c.execute(
+            queries["eligible"], (end_date, end_date, start_date, center)
+        ).fetchall()
+    ]
+
+    eligble_for_vacc = len(eligble)
 
     during = [
         val[0]
@@ -139,20 +148,44 @@ def center_pneumo_data(center, start_date, end_date):
     ]
     vacc_prior = len(prior)
 
-    refused = len(
-        [
-            val[0]
-            for val in c.execute(
-                queries["refused"], (end_date, end_date, start_date, center)
-            ).fetchall()
-            if val[0] not in during + prior + contra
-        ]
+    refused = [
+        val[0]
+        for val in c.execute(
+            queries["refused"], (end_date, end_date, start_date, center)
+        ).fetchall()
+        if val[0] not in during + prior + contra
+    ]
+
+    refused_vacc = len(refused)
+
+    missed_list = [
+        val for val in eligble if val not in during + prior + contra + refused
+    ]
+
+    missed_query = f"""
+    SELECT p.member_id, p.first, p.last, e.enrollment_date, e.disenrollment_date
+    FROM ppts p
+    JOIN enrollment e on p.member_id=e.member_id
+    WHERE p.member_id IN ({','.join('?' for i in missed_list)});
+    """
+
+    quarter, year = get_quarter_dates(q, yr, return_q=True)
+    pd.read_sql(missed_query, conn, params=missed_list).to_csv(
+        f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_pneumo_{pd.datetime.today().date()}_{center}.csv",
+        index=False,
     )
 
-    missed = eligble - (vacc_during + vacc_prior + refused + vacc_contra)
+    missed = eligble_for_vacc - (vacc_during + vacc_prior + refused_vacc + vacc_contra)
 
     conn.close()
-    return [eligble, vacc_contra, vacc_during, vacc_prior, refused, missed]
+    return [
+        eligble_for_vacc,
+        vacc_contra,
+        vacc_during,
+        vacc_prior,
+        refused_vacc,
+        missed,
+    ]
 
 
 def pneumo_vacc(q=None, yr=None, return_df=False):
@@ -163,10 +196,10 @@ def pneumo_vacc(q=None, yr=None, return_df=False):
     Returns dataframe where each row is a vaccination status and each column
     is a center.    
     """
-    start_date, end_date = get_quarter_dates(q, yr)
+
     immunization_dict = {}
     for center in ["Providence", "Woonsocket", "Westerly"]:
-        immunization_dict[center] = center_pneumo_data(center, start_date, end_date)
+        immunization_dict[center] = center_pneumo_data(center, q, yr)
 
     df_index = ["eligble", "contra", "vacc_during", "vacc_prior", "refused", "missed"]
 
