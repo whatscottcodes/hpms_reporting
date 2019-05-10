@@ -112,7 +112,6 @@ def center_influ_data(center, q, yr):
 
     conn = sqlite3.connect("V:\\Databases\\reporting.db")
     c = conn.cursor()
-    print(start_date)
     queries = create_influ_query_dict()
     eligble = [
         val[0]
