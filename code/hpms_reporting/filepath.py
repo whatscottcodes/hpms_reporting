@@ -1,7 +1,7 @@
 import os
 from hpms_reporting.get_quarter import get_quarter_dates
 
-filepath = "C:\\Users\\snelson\\work\\hpms_reporting\\report_files"
+filepath = "C:\\Users\\snelson\\repos\\hpms_reporting\\output"
 
 
 def create_dir_if_needed(q=None, yr=None):
