@@ -1,8 +1,6 @@
-import sqlite3
+from paceutils import Helpers
+from filepath import filepath, create_dir_if_needed, db_filepath
 import pandas as pd
-from hpms_reporting.get_quarter import get_quarter_dates
-from hpms_reporting.filepath import filepath, create_dir_if_needed
-
 import argparse
 
 
@@ -193,9 +191,39 @@ def create_csv(quarter_incidents):
     }
 
     quarter_incidents.rename(columns=final_cols_map, inplace=True)
+    quarter_incidents["Indicator Type - v1"] = "IB"
+    quarter_incidents["Contract Number"] = "H4105"
+
+    # fillna cols correctly
+
+    cf_null = (
+        quarter_incidents["Contributing Factors (use values from separate worksheet)"]
+        == ""
+    )
+    details_null = (
+        quarter_incidents["Actions Taken (use values from separate worksheet)"] == ""
+    )
+
+    quarter_incidents[
+        "Contributing Factors (use values from separate worksheet)"
+    ] = pd.np.where(
+        cf_null,
+        "Other - Provide Additional Details",
+        quarter_incidents["Contributing Factors (use values from separate worksheet)"],
+    )
+
+    quarter_incidents[
+        "Actions Taken (use values from separate worksheet)"
+    ] = pd.np.where(
+        details_null,
+        "Other - Provide Additional Details",
+        quarter_incidents["Actions Taken (use values from separate worksheet)"],
+    )
 
     final_cols = [
         "Member ID",
+        "Indicator Type - v1",
+        "Contract Number",
         "Site Name",
         "Location of Incident (select from dropdown)",
         "Type of Medication Error (select from dropdown)",
@@ -210,34 +238,78 @@ def create_csv(quarter_incidents):
     return final_med_incidents
 
 
-def med_errors(q=None, yr=None, return_df=False):
-    conn = sqlite3.connect("V:\\Databases\\reporting.db")
+def med_errors(quarter=None, year=None):
+    helpers = Helpers(db_filepath)
 
-    start_date, end_date = get_quarter_dates(q, yr)
+    if quarter is None:
+        params = helpers.last_quarter()
+        quarter, year = helpers.last_quarter(return_q=True)
+    else:
+        params = helpers.get_quarter_dates(quarter, year)
 
     query = """
         SELECT med_errors.*, e.center FROM med_errors
         JOIN enrollment e on med_errors.member_id=e.member_id
-        WHERE date_discovered BETWEEN ? and ?
+        WHERE date_discovered BETWEEN ? and date(?, '+1 day')
+        AND (order_written_correctly = 1
+        OR order_written_correctly='Unknown')
         """
 
-    quarter_incidents = rename_columns(
-        pd.read_sql(query, conn, params=(start_date, end_date))
-    )
+    quarter_incidents = rename_columns(helpers.dataframe_query(query, params))
     quarter_incidents = create_tag_cols(quarter_incidents)
     quarter_incidents = map_location_and_center(quarter_incidents)
 
-    conn.close()
-
     final_df = create_csv(quarter_incidents)
 
-    quarter, year = get_quarter_dates(q, yr, return_q=True)
+    other_contr_filter = (final_df["Contributing Factors (use values from separate worksheet)"] != "Other - Provide Additional Details")
+    final_df["Other Contributing Factor"] = pd.np.where(other_contr_filter, "", final_df["Other Contributing Factor"])
+
+    other_action_filter = (final_df["Actions Taken (use values from separate worksheet)"] != "Other - Provide Additional Details")
+    final_df["Other Action"] = pd.np.where(other_action_filter, "", final_df["Other Action"])
+
     final_df.to_csv(
-        f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}.csv"
+        f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}.csv",
+        index=False,
+    )
+    final_df.drop(["Member ID"], axis=1, inplace=True)
+    
+    final_pvd = final_df[
+        final_df["Site Name"] == "PACE Rhode Island - Providence"
+    ].copy()
+    final_woo = final_df[
+        final_df["Site Name"] == "PACE Rhode Island - Woonsocket"
+    ].copy()
+    final_wes = final_df[final_df["Site Name"] == "PACE Rhode Island - Westerly"].copy()
+
+    tab_cols = ["IB v2.0"] + [""] * 8
+
+    first_row = pd.DataFrame(
+        data=[final_df.columns], index=[0], columns=final_df.columns
     )
 
-    if return_df:
-        return final_df
+    final_pvd = first_row.append(final_pvd, sort=False)
+    final_woo = first_row.append(final_woo, sort=False)
+    final_wes = first_row.append(final_wes, sort=False)
+
+    final_pvd.columns = tab_cols
+    final_woo.columns = tab_cols
+    final_wes.columns = tab_cols
+
+    final_pvd.to_csv(
+        f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}_pvd.txt",
+        index=False,
+        sep="\t",
+    )
+    final_woo.to_csv(
+        f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}_woon.txt",
+        index=False,
+        sep="\t",
+    )
+    final_wes.to_csv(
+        f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}_wes.txt",
+        index=False,
+        sep="\t",
+    )
 
     return "Med Errors Complete!"
 
@@ -245,12 +317,10 @@ def med_errors(q=None, yr=None, return_df=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--q", default=None, help="Number of quarter")
-    parser.add_argument("--yr", default=None, help="Year of quarter")
-    parser.add_argument(
-        "--return_df", default=False, help="Should this return a Pandas DF?"
-    )
+    parser.add_argument("--quarter", default=None, help="Number of quarter")
+    parser.add_argument("--year", default=None, help="Year of quarter")
+
     arguments = parser.parse_args()
 
-    create_dir_if_needed(**vars(arguments)[:2])
+    create_dir_if_needed(**vars(arguments))
     med_errors(**vars(arguments))
