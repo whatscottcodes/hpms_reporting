@@ -20,9 +20,8 @@ def eligible(params, center):
     AND (disenrollment_date >=?
     OR disenrollment_date IS NULL)
     AND enrollment_date <= ?
-    AND e.center = ?;
+    AND e.center = ?
     """
-
     return helpers.fetchall_query(query, params)
 
 
@@ -41,7 +40,7 @@ def during(params, center):
     AND enrollment_date <= ?
     AND dose_status = 1
     AND date_administered BETWEEN ? AND date(?, '+1 day')
-    AND e.center = ?;
+    AND e.center = ?
     """
 
     return helpers.fetchall_query(query, params)
@@ -85,7 +84,7 @@ def refused_during(params, center):
     AND enrollment_date <= ?
     AND dose_status = 0
     AND date_administered BETWEEN ? AND date(?, '+1 day')
-    AND e.center = ?;
+    AND e.center = ?
     """
 
     return helpers.fetchall_query(query, params)
@@ -134,6 +133,27 @@ def contra(params, center):
     return helpers.fetchall_query(query, params)
 
 
+def missed_list_for_nursing(missed, quarter, year, filename):
+    file_path = f"{filepath}\\{year}Q{quarter}\\missed_vacc\\{filename}.csv"
+    member_list = ",".join(["?"] * len(missed))
+
+    query = f"""SELECT e.member_id, p.first, p.last, e.enrollment_date, e.disenrollment_date
+    FROM enrollment e
+    JOIN ppts p on e.member_id=p.member_id
+    WHERE e.member_id IN ({member_list});"""
+
+    new_missed = helpers.dataframe_query(query, missed)
+    try:
+        current_missed = pd.read_csv(file_path)
+        dff = current_missed.append(new_missed)
+
+        dff.drop_duplicates(inplace=True)
+        dff.to_csv(file_path, index=False)
+
+    except FileNotFoundError:
+        new_missed.to_csv(file_path, index=False)
+
+
 def center_pneumo_data(center, params, quarter, year):
 
     eligible_ppts = [val[0] for val in eligible(params, center)]
@@ -155,13 +175,11 @@ def center_pneumo_data(center, params, quarter, year):
 
     missed = [mem_id for mem_id in eligible_ppts if mem_id not in all_in_pneumo]
 
-    csvfile = f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_pneumo.csv"
+    refused_prior_list = [val[0] for val in refused_prior(params, center)]
+    missed_actual = [mem_id for mem_id in missed if mem_id not in refused_prior_list]
 
-    # Assuming res is a flat list
-    with open(csvfile, "a") as output:
-        writer = csv.writer(output, lineterminator="\n")
-        for val in missed:
-            writer.writerow([val])
+    missed_list_for_nursing(missed, quarter, year, "missed_pneumo_hpms")
+    missed_list_for_nursing(missed_actual, quarter, year, "missed_pneumo_actual")
 
     if len(missed) != (len(eligible_ppts) - len(all_in_pneumo)):
         raise ValueError("Missed does not match eligible - all recieved or refused")
@@ -174,28 +192,6 @@ def center_pneumo_data(center, params, quarter, year):
         len(contra_ppts),
         len(missed),
     ]
-
-
-def missed_list_for_nursing(quarter, year):
-    df = pd.read_csv(
-        f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_pneumo.csv",
-        header=None,
-        names=["member_id"],
-    )
-    missed = df["member_id"].to_list()
-    member_list = ",".join(["?"] * len(missed))
-
-    query = f"""SELECT e.member_id, p.first, p.last, e.center, p.team, e.enrollment_date, e.disenrollment_date
-    FROM enrollment e
-    JOIN ppts p on e.member_id=p.member_id
-    WHERE e.member_id IN ({member_list});"""
-
-    os.remove(f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_pneumo.csv")
-
-    helpers.dataframe_query(query, missed).to_csv(
-        f"{filepath}\\{year}Q{quarter}\\missed_vacc\\missed_pneumo_hpms.csv",
-        index=False,
-    )
 
 
 def pneumo_vacc(quarter=None, year=None):
@@ -216,14 +212,13 @@ def pneumo_vacc(quarter=None, year=None):
     for center in ["Providence", "Woonsocket", "Westerly"]:
         immunization_dict[center] = center_pneumo_data(center, params, quarter, year)
 
-    df_index = ["eligble", "during", "prior", "refused", "contra", "missed"]
+    df_index = ["eligible", "during", "prior", "refused", "contra", "missed"]
 
     df = pd.DataFrame.from_dict(immunization_dict)
     df.index = df_index
 
     df.to_csv(f"{filepath}\\{year}Q{quarter}\\hpms_pneumo_Q{quarter}_{year}.csv")
 
-    missed_list_for_nursing(quarter, year)
     return "Pneumococcal Complete!"
 
 

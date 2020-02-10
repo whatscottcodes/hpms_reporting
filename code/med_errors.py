@@ -131,7 +131,7 @@ def create_tag_cols(quarter_incidents):
 
 
 def map_location_and_center(quarter_incidents):
-    """Maps location and center coloumns to HPMS language.
+    """Maps location and centers coloumns to HPMS language.
 
     Args:
         quarter_incidents: pandas DataFrame of medical incidents
@@ -248,8 +248,9 @@ def med_errors(quarter=None, year=None):
         params = helpers.get_quarter_dates(quarter, year)
 
     query = """
-        SELECT med_errors.*, e.center FROM med_errors
+        SELECT med_errors.*, c.center FROM med_errors
         JOIN enrollment e on med_errors.member_id=e.member_id
+        JOIN centers c on e.member_id = c.member_id
         WHERE date_discovered BETWEEN ? and date(?, '+1 day')
         AND (order_written_correctly = 1
         OR order_written_correctly='Unknown')
@@ -261,18 +262,32 @@ def med_errors(quarter=None, year=None):
 
     final_df = create_csv(quarter_incidents)
 
-    other_contr_filter = (final_df["Contributing Factors (use values from separate worksheet)"] != "Other - Provide Additional Details")
-    final_df["Other Contributing Factor"] = pd.np.where(other_contr_filter, "", final_df["Other Contributing Factor"])
+    other_contr_filter = (
+        final_df["Contributing Factors (use values from separate worksheet)"]
+        != "Other - Provide Additional Details"
+    )
+    final_df["Other Contributing Factor"] = pd.np.where(
+        other_contr_filter, "", final_df["Other Contributing Factor"]
+    )
 
-    other_action_filter = (final_df["Actions Taken (use values from separate worksheet)"] != "Other - Provide Additional Details")
-    final_df["Other Action"] = pd.np.where(other_action_filter, "", final_df["Other Action"])
+    other_action_filter = (
+        final_df["Actions Taken (use values from separate worksheet)"]
+        != "Other - Provide Additional Details"
+    )
+    final_df["Other Action"] = pd.np.where(
+        other_action_filter, "", final_df["Other Action"]
+    )
 
     final_df.to_csv(
         f"{filepath}\\{year}Q{quarter}\\hpms_med_errors_Q{quarter}_{year}.csv",
         index=False,
     )
     final_df.drop(["Member ID"], axis=1, inplace=True)
-    
+
+    final_df = final_df[
+        final_df["Type of Medication Error (select from dropdown)"] != ""
+    ]
+
     final_pvd = final_df[
         final_df["Site Name"] == "PACE Rhode Island - Providence"
     ].copy()

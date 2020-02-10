@@ -27,7 +27,7 @@ def eligible(params, center):
     WHERE (disenrollment_date >=?
     OR disenrollment_date IS NULL)
     AND enrollment_date <= ?
-    AND e.center = ?;
+    AND e.center = ?
     """
 
     return helpers.fetchall_query(query, params)
@@ -45,7 +45,7 @@ def during(params, center):
     AND enrollment_date <= ?
     AND dose_status = 1
     AND date_administered BETWEEN ? AND date(?, '+1 day')
-    AND e.center = ?;
+    AND e.center = ?
     """
 
     return helpers.fetchall_query(query, params)
@@ -83,7 +83,7 @@ def refused_during(params, center):
     AND enrollment_date <= ?
     AND dose_status = 0
     AND date_administered BETWEEN ? AND date(?, '+1 day')
-    AND e.center = ?;
+    AND e.center = ?
     """
 
     return helpers.fetchall_query(query, params)
@@ -126,7 +126,7 @@ def contra(params, center):
     return helpers.fetchall_query(query, params)
 
 
-def center_influ_data(center, params, year, quarter):
+def center_influ_data(center, params, quarter, year):
 
     eligible_ppts = [val[0] for val in eligible(params, center)]
     during_ppts = [val[0] for val in during(params, center)]
@@ -178,7 +178,7 @@ def missed_list_for_nursing(quarter, year):
     missed = df["member_id"].to_list()
     member_list = ",".join(["?"] * len(missed))
 
-    q = f"""SELECT e.member_id, p.first, p.last, e.center, p.team, e.enrollment_date, e.disenrollment_date
+    q = f"""SELECT e.member_id, p.first, p.last, e.enrollment_date, e.disenrollment_date
     FROM enrollment e
     JOIN ppts p on e.member_id=p.member_id
     WHERE e.member_id IN ({member_list});"""
@@ -210,7 +210,7 @@ def influ_vacc(quarter=None, year=None):
     for center in ["Providence", "Woonsocket", "Westerly"]:
         immunization_dict[center] = center_influ_data(center, params, quarter, year)
 
-    df_index = ["eligble", "contra", "vacc_during", "vacc_prior", "refused", "missed"]
+    df_index = ["eligible", "vacc_during", "vacc_prior", "refused", "contra", "missed"]
 
     df = pd.DataFrame.from_dict(immunization_dict)
     df.index = df_index
