@@ -17,7 +17,7 @@ def hpms_reporting_wrapper(q=None, yr=None):
     med_errors(q, yr)
     pneumo_vacc(q, yr)
 
-    if q == 1:
+    if (q == 4) | (q == 1):
         influ_vacc(q, yr)
 
 
