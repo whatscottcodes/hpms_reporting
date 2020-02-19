@@ -53,7 +53,7 @@ def enrollment_data(params):
         "Medicare",
         "Medicaid",
         "Private Pay",
-        "Disnrolled",
+        "Disenrolled",
         "Dual",
         "Medicare",
         "Medicaid",
@@ -74,8 +74,8 @@ def double_check(df, params):
     if totals["Enrolled"] != enroll.enrolled(params):
         raise ValueError("Enrolled does not match")
 
-    if totals["Disnrolled"] != enroll.disenrolled(params):
-        raise ValueError("Disnrolled does not match")
+    if totals["Disenrolled"] != enroll.disenrolled(params):
+        raise ValueError("Disenrolled does not match")
 
     if totals["Deaths"] != enroll.deaths(params):
         raise ValueError("Deaths do not match")
