@@ -1,6 +1,7 @@
 from paceutils import Helpers
 from filepath import filepath, create_dir_if_needed, db_filepath
 import pandas as pd
+import numpy as np
 import argparse
 
 
@@ -206,7 +207,7 @@ def create_csv(quarter_incidents):
 
     quarter_incidents[
         "Contributing Factors (use values from separate worksheet)"
-    ] = pd.np.where(
+    ] = np.where(
         cf_null,
         "Other - Provide Additional Details",
         quarter_incidents["Contributing Factors (use values from separate worksheet)"],
@@ -214,7 +215,7 @@ def create_csv(quarter_incidents):
 
     quarter_incidents[
         "Actions Taken (use values from separate worksheet)"
-    ] = pd.np.where(
+    ] = np.where(
         details_null,
         "Other - Provide Additional Details",
         quarter_incidents["Actions Taken (use values from separate worksheet)"],
@@ -266,7 +267,7 @@ def med_errors(quarter=None, year=None):
         final_df["Contributing Factors (use values from separate worksheet)"]
         != "Other - Provide Additional Details"
     )
-    final_df["Other Contributing Factor"] = pd.np.where(
+    final_df["Other Contributing Factor"] = np.where(
         other_contr_filter, "", final_df["Other Contributing Factor"]
     )
 
@@ -274,7 +275,7 @@ def med_errors(quarter=None, year=None):
         final_df["Actions Taken (use values from separate worksheet)"]
         != "Other - Provide Additional Details"
     )
-    final_df["Other Action"] = pd.np.where(
+    final_df["Other Action"] = np.where(
         other_action_filter, "", final_df["Other Action"]
     )
 
